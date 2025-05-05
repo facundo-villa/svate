@@ -1,5 +1,6 @@
 import { describe, test, expect } from "vitest";
 import { Svate } from "./index.svelte.ts";
+import { tick } from "svelte";
 
 test("Svate", () => {
 	const svate = new Svate();
@@ -104,7 +105,7 @@ test("Update dependencies", async () => {
 		};
 	});
 
-	expect(queries).toBe(0);
+	expect(queries).toBe(1);
 
 	await expect(query.value).resolves.toBe(0);
 	expect(queries).toBe(1);
@@ -147,7 +148,7 @@ describe("Invalidate", () => {
 			};
 		});
 
-		expect(queries).toBe(0);
+		expect(queries).toBe(1);
 
 		const mutation = svate.mutation(() => {
 			state += 1;
@@ -207,8 +208,8 @@ describe("Invalidate", () => {
 			};
 		});
 
-		expect(queriesA).toBe(0);
-		expect(queriesB).toBe(0);
+		expect(queriesA).toBe(1);
+		expect(queriesB).toBe(1);
 
 		await expect(queryA.value).resolves.toBe(0);
 		await expect(queryB.value).resolves.toBe(0);
@@ -252,7 +253,7 @@ describe("Invalidate", () => {
 			};
 		});
 
-		expect(queries).toBe(0);
+		expect(queries).toBe(1);
 
 		await expect(query.value).resolves.toBe(0);
 		expect(state).toBe(0);
@@ -271,47 +272,6 @@ describe("Invalidate", () => {
 		await expect(query.value).resolves.toBe(0);
 		expect(state).toBe(0);
 		expect(queries).toBe(3);
-	});
-
-	test("eager query", async () => {
-		const svate = new Svate({
-			defaults: {
-				update: "eager",
-			}
-		});
-
-		let state = 0;
-		let queries = 0;
-
-		const query = svate.query(async () => {
-			queries += 1;
-
-			return {
-				value: state,
-				depends: [["root"]],
-			};
-		});
-
-		expect(queries).toBe(1);
-
-		const mutation = svate.mutation(() => {
-			state += 1;
-
-			return {
-				invalidate: ["root"],
-			};
-		});
-
-		await expect(query.value).resolves.toBe(0);
-		expect(state).toBe(0);
-		expect(queries).toBe(1);
-
-		await mutation();
-
-		expect(queries).toBe(2); // Should have queried
-		await expect(query.value).resolves.toBe(1);
-		expect(state).toBe(1);
-		expect(queries).toBe(2);
 	});
 
 	test("multiple queries", async () => {
@@ -364,11 +324,11 @@ describe("Invalidate", () => {
 			};
 		});
 
-		expect(queries).toBe(0);
+		expect(queries).toBe(1);
 
 		await svate.invalidate(["other"]);
 
-		expect(queries).toBe(0);
+		expect(queries).toBe(1);
 		await expect(query.value).resolves.toBe(0);
 		expect(state).toBe(0);
 		expect(queries).toBe(1);
@@ -400,8 +360,8 @@ describe("Invalidate", () => {
 			};
 		});
 
-		expect(queriesA).toBe(0);
-		expect(queriesB).toBe(0);
+		expect(queriesA).toBe(1);
+		expect(queriesB).toBe(1);
 
 		await expect(queryA.value).resolves.toBe(0);
 		await expect(queryB.value).resolves.toBe(0);
@@ -443,18 +403,10 @@ describe("Invalidate", () => {
 			};
 		});
 
-		expect(queriesA).toBe(0);
-		expect(queriesB).toBe(0);
+		await new Promise((resolve) => {
+			setTimeout(resolve, 100);
+		});
 
-		await svate.invalidate();
-
-		expect(queriesA).toBe(0);
-		expect(queriesB).toBe(0);
-
-		await expect(queryA.value).resolves.toBe(0);
-		await expect(queryB.value).resolves.toBe(0);
-
-		expect(state).toBe(0);
 		expect(queriesA).toBe(1);
 		expect(queriesB).toBe(1);
 
@@ -469,5 +421,17 @@ describe("Invalidate", () => {
 		expect(state).toBe(0);
 		expect(queriesA).toBe(2);
 		expect(queriesB).toBe(2);
+
+		await svate.invalidate();
+
+		expect(queriesA).toBe(3);
+		expect(queriesB).toBe(3);
+
+		await expect(queryA.value).resolves.toBe(0);
+		await expect(queryB.value).resolves.toBe(0);
+
+		expect(state).toBe(0);
+		expect(queriesA).toBe(3);
+		expect(queriesB).toBe(3);
 	});
 });

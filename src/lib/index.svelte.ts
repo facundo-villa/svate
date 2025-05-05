@@ -1,4 +1,5 @@
 import { getContext } from "svelte";
+import { stable_key_from_array } from "./hash";
 
 type StoredQuery<T, S> = {
 	resolver: () => Promise<QueryReturn<T, S>>,
@@ -15,52 +16,23 @@ type QueryReturn<T, S> = {
 	state?: S,
 };
 
-const stable_key_from_object = (object: any): string => {
-	return Object.entries(object).map(([key, value]) => {
-		if (Array.isArray(value)) {
-			return `${key}:${stable_key_from_array(value)}`;
-		} else if (typeof value === "object") {
-			return `${key}:${stable_key_from_object(value)}`;
-		} else {
-			return `${key}:${value}`;
-		}
-	}).join(",");
-};
-
-const stable_key_from_array = (array: any[]): string => {
-	return array.map((value) => {
-		if (Array.isArray(value)) {
-			return stable_key_from_array(value);
-		} else if (typeof value === "object") {
-			return stable_key_from_object(value);
-		} else {
-			return value;
-		}
-	}).join(",");
-};
-
 class Query<T, S> {
-	private _value: any = null;
 	private _promise: Promise<T> = $state(new Promise(() => {}));
 	private _hasValue: boolean = false;
 	private _loading: boolean = $state(false);
 	private _isDirty: boolean = true;
 	depends: any[][] = [];
-	update: "eager" | "lazy" = "lazy";
 	resolver: () => Promise<QueryReturn<T, S>>;
 	cache: Map<string, StoredQuery<any, S>[]>;
 
-	constructor(cache: Map<string, StoredQuery<any, S>[]>, resolver: () => Promise<QueryReturn<T, S>>, update: "eager" | "lazy") {
+	constructor(cache: Map<string, StoredQuery<any, S>[]>, resolver: () => Promise<QueryReturn<T, S>>) {
 		this.cache = cache;
-		this.update = update;
 		this.resolver = resolver;
 
-		if (this.update == "eager") {
-			this.set(); // Fire and forget
-		}
+		this.set(); // Fire and forget
 	}
 
-	set(): Promise<T> {
+	set() {
 		if (this._hasValue && !this._isDirty) {
 			return this._promise;
 		}
@@ -77,7 +49,6 @@ class Query<T, S> {
 			const value = r.value;
 			this._loading = false;
 			this._isDirty = false;
-			this._value = value;
 			this._hasValue = true;
 
 			// Remove previous dependencies
@@ -105,7 +76,7 @@ class Query<T, S> {
 	}
 
 	get value(): Promise<T> {
-		return this.set();
+		return this._promise;
 	}
 
 	get loading() {
@@ -117,20 +88,26 @@ class Query<T, S> {
 	}
 
 	private subscribe<R>(sq: StoredQuery<R, S>) {
-		for (const queryKey of this.depends || []) {
-			const stableKey = stable_key_from_array(queryKey);
-
-			let slot = this.cache.get(stableKey);
+		const subscribe_key = (key: string) => {
+			let slot = this.cache.get(key);
 
 			if (!slot) {
 				slot = [];
-				this.cache.set(stableKey, slot);
+				this.cache.set(key, slot);
 			}
 
 			if (!slot.find(e => e.resolver == sq.resolver)) {
 				slot.push(sq);
 			}
+		};
+
+		for (const queryKey of this.depends || []) {
+			const stableKey = stable_key_from_array(queryKey);
+
+			subscribe_key(stableKey);
 		}
+
+		subscribe_key("");
 	}
 }
 
@@ -165,7 +142,6 @@ export class Svate<S = undefined> {
 				await decorator(qr);
 				return qr;
 			} : resolver,
-			this.config.defaults.update,
 		);
 
 		return query;
@@ -188,17 +164,18 @@ export class Svate<S = undefined> {
 	* @param key - The key of the query to invalidate. If not provided, all queries will be invalidated
 	*/
 	async invalidate(key?: any[]) {
-		const update = async (e: StoredQuery<any, S>) => {
+		const update = (e: StoredQuery<any, S>) => {
 			e.query.flag();
 
-			await e.query.set();
+			return e.query.set();
 		}
 
 		if (key !== undefined) {
 			const cacheEntry = this.cache.get(stable_key_from_array(key));
 			await Promise.all(cacheEntry?.map(update) || []);
 		} else {
-			await Promise.all(this.cache.values().map(a => a.map(update)).reduce((a, b) => a.concat(b), []));
+			const cacheEntries = this.cache.values().reduce((a, b) => a.concat(b), []);
+			await Promise.all(cacheEntries.map(update));
 		}
 	}
 }
